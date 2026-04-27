@@ -26,7 +26,7 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 
 // ─── Cache Configuration ────────────────────────────────────────────────────
-const CACHE_VERSION = 'letchat-v2.0.6';
+const CACHE_VERSION = 'letchat-v2.0.8';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
 // Only cache files guaranteed to exist at build time
@@ -69,7 +69,13 @@ async function trimCache(cacheName, maxEntries) {
  * @param {string} method
  */
 function shouldBypass(url, method) {
-  if (method !== 'GET') return true;
+  if (method !== 'GET') {
+    // Allow POST for share-target
+    if (method === 'POST' && url.pathname.endsWith('/share-target')) {
+      return false;
+    }
+    return true;
+  }
   if (url.pathname.startsWith('/api/')) return true;
   if (url.protocol === 'chrome-extension:') return true;
   // Skip cross-origin requests (Firebase CDN, etc.)
@@ -137,6 +143,52 @@ self.addEventListener('fetch', (event) => {
 
   // ── Bypass: API, non-GET, cross-origin ──
   if (shouldBypass(url, event.request.method)) return;
+
+  // ── Special: Web Share Target POST ──
+  if (event.request.method === 'POST' && url.pathname.endsWith('/share-target')) {
+    event.respondWith(
+      (async () => {
+        try {
+          const formData = await event.request.formData();
+          const mediaFiles = formData.getAll('media');
+          const title = formData.get('title');
+          const text = formData.get('text');
+          const sharedUrl = formData.get('url');
+
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('LetsChatDB', DB_VERSION);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+
+          const tx = db.transaction('sharedData', 'readwrite');
+          const store = tx.objectStore('sharedData');
+
+          if (mediaFiles?.length > 0) {
+            for (const file of mediaFiles) {
+              if (file.size > 0) {
+                store.add({ type: 'file', file, name: file.name, mimeType: file.type, timestamp: Date.now() });
+              }
+            }
+          }
+          if (title || text || sharedUrl) {
+            store.add({ type: 'text', title, text, url: sharedUrl, timestamp: Date.now() });
+          }
+
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve;
+            tx.onerror = reject;
+          });
+
+          return Response.redirect('./#/share-target?received=true', 303);
+        } catch (err) {
+          console.error('[SW] Share target failed:', err);
+          return Response.redirect('./#/share-target?error=true', 303);
+        }
+      })()
+    );
+    return;
+  }
 
   // ── Strategy 1: Navigation Requests (SPA fallback) ──
   // For page navigations, try network first. If it fails OR returns non-200,
@@ -206,52 +258,6 @@ self.addEventListener('fetch', (event) => {
   // ── Strategy 4: All Other Same-Origin Requests — Network First ──
   // Don't cache dynamic content (e.g., /files/, /share-target).
   // Just pass through.
-
-  // ── Special: Web Share Target POST ──
-  if (event.request.method === 'POST' && url.pathname.endsWith('/share-target')) {
-    event.respondWith(
-      (async () => {
-        try {
-          const formData = await event.request.formData();
-          const mediaFiles = formData.getAll('media');
-          const title = formData.get('title');
-          const text = formData.get('text');
-          const sharedUrl = formData.get('url');
-
-          const db = await new Promise((resolve, reject) => {
-            const request = indexedDB.open('LetsChatDB', DB_VERSION);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-          });
-
-          const tx = db.transaction('sharedData', 'readwrite');
-          const store = tx.objectStore('sharedData');
-
-          if (mediaFiles?.length > 0) {
-            for (const file of mediaFiles) {
-              if (file.size > 0) {
-                store.add({ type: 'file', file, name: file.name, mimeType: file.type, timestamp: Date.now() });
-              }
-            }
-          }
-          if (title || text || sharedUrl) {
-            store.add({ type: 'text', title, text, url: sharedUrl, timestamp: Date.now() });
-          }
-
-          await new Promise((resolve, reject) => {
-            tx.oncomplete = resolve;
-            tx.onerror = reject;
-          });
-
-          return Response.redirect('./#/share-target?received=true', 303);
-        } catch (err) {
-          console.error('[SW] Share target failed:', err);
-          return Response.redirect('./#/share-target?error=true', 303);
-        }
-      })()
-    );
-    return;
-  }
 });
 
 const API = "https://letschat-backend-69jf.onrender.com/api"; // This should ideally be injected at build time
@@ -482,8 +488,7 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const chatId = event.notification.data?.chatId;
-  const baseUrl = self.location.origin + self.location.pathname;
-  const urlToOpen = new URL(chatId ? `${baseUrl}#/chat/${chatId}` : `${baseUrl}#/`, self.location.origin).href;
+  const urlToOpen = new URL(chatId ? `/#/chat/${chatId}` : `/#/`, self.location.origin).href;
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
