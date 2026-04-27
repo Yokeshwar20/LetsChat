@@ -146,14 +146,14 @@ self.addEventListener('fetch', (event) => {
       fetch(event.request)
         .then(response => {
           if (!response || response.status !== 200) {
-            console.log(`[SW] Navigation got ${response?.status}, falling back to /index.html`);
-            return caches.match('/index.html');
+            console.log(`[SW] Navigation got ${response?.status}, falling back to ./index.html`);
+            return caches.match('./index.html');
           }
           return response;
         })
         .catch(() => {
-          console.log('[SW] Navigation failed (offline), serving /index.html from cache');
-          return caches.match('/index.html');
+          console.log('[SW] Navigation failed (offline), serving ./index.html from cache');
+          return caches.match('./index.html');
         })
     );
     return;
@@ -161,7 +161,12 @@ self.addEventListener('fetch', (event) => {
 
   // ── Strategy 2: App Shell (exact match) ──
   // Cache-first for the explicitly defined shell files.
-  const isShellFile = APP_SHELL.some(path => url.pathname === path);
+  // We resolve relative paths in APP_SHELL against the SW scope for robust matching.
+  const isShellFile = APP_SHELL.some(path => {
+    const absolutePath = new URL(path, self.registration.scope).pathname;
+    return url.pathname === absolutePath;
+  });
+
   if (isShellFile) {
     event.respondWith(
       caches.match(event.request)
@@ -238,10 +243,10 @@ self.addEventListener('fetch', (event) => {
             tx.onerror = reject;
           });
 
-          return Response.redirect('/share-target?received=true', 303);
+          return Response.redirect('./#/share-target?received=true', 303);
         } catch (err) {
           console.error('[SW] Share target failed:', err);
-          return Response.redirect('/share-target?error=true', 303);
+          return Response.redirect('./#/share-target?error=true', 303);
         }
       })()
     );
@@ -477,14 +482,15 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const chatId = event.notification.data?.chatId;
-  const urlToOpen = new URL(chatId ? `/chat/${chatId}` : '/', self.location.origin).href;
+  const baseUrl = self.location.origin + self.location.pathname;
+  const urlToOpen = new URL(chatId ? `${baseUrl}#/chat/${chatId}` : `${baseUrl}#/`, self.location.origin).href;
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
       for (const client of windowClients) {
         if (client.url === urlToOpen && 'focus' in client) return client.focus();
       }
-      if (clients.openWindow) return clients.openWindow(urlToOpen);
+      if (self.clients.openWindow) return self.clients.openWindow(urlToOpen);
     })
   );
 });
