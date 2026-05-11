@@ -488,7 +488,10 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const chatId = event.notification.data?.chatId;
-  const urlToOpen = new URL(chatId ? `/#/chat/${chatId}` : `/#/`, self.location.origin).href;
+  const baseUrl = self.registration.scope;
+  // Ensure the URL is constructed correctly for HashRouter, adding space=0 by default
+  const relativePath = chatId ? `#/chat/${chatId}?space=0` : `#/chats`;
+  const urlToOpen = new URL(relativePath, baseUrl).href;
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
