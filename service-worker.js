@@ -434,6 +434,7 @@ messaging.onBackgroundMessage((payload) => {
       }
 
       // 2. Fallback: Call API
+      let currentUserId = null;
       if (db.objectStoreNames.contains('metaStore')) {
         const txMeta = db.transaction('metaStore', 'readonly');
         const userIdRes = await new Promise((resolve) => {
@@ -441,10 +442,11 @@ messaging.onBackgroundMessage((payload) => {
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => resolve(null);
         });
+        currentUserId = userIdRes?.value;
 
-        if (userIdRes?.value) {
-          console.log('[SW] Cache miss for chatId, fetching from API for user:', userIdRes.value);
-          const apiRes = await fetch(`${API}/user/chatbox/${userIdRes.value}`, {
+        if (currentUserId) {
+          console.log('[SW] Cache miss for chatId, fetching from API for user:', currentUserId);
+          const apiRes = await fetch(`${API}/user/chatbox/${currentUserId}`, {
             headers: { 'ngrok-skip-browser-warning': 'true' }
           });
 
@@ -463,18 +465,35 @@ messaging.onBackgroundMessage((payload) => {
         }
       }
 
-      showNotification(dynamicTitle);
+      // Check for mentions
+      let hasMention = false;
+      if (currentUserId) {
+        const mentionSyntax = `<@${currentUserId}:`;
+        for (const msgStr of messageList) {
+          if (typeof msgStr === 'string' && msgStr.includes(mentionSyntax)) {
+            hasMention = true;
+            break;
+          }
+        }
+      }
+
+      if (hasMention) {
+        showNotification("You were mentioned", "Someone mentioned you in this chat.");
+      } else {
+        showNotification(dynamicTitle, notificationBody);
+      }
     } catch (err) {
       console.error('[SW] Resolution failed:', err);
-      showNotification(dynamicTitle);
+      // Try to check mentions even on error if currentUserId is known
+      showNotification(dynamicTitle, notificationBody);
     }
   };
 
   resolveAndShow();
 
-  function showNotification(finalTitle) {
+  function showNotification(finalTitle, finalBody) {
     self.registration.showNotification(finalTitle, {
-      body: notificationBody,
+      body: finalBody,
       icon: 'icon.png',
       badge: 'icon.png',
       tag: chatId,
@@ -489,8 +508,8 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const chatId = event.notification.data?.chatId;
   const baseUrl = self.registration.scope;
-  // Ensure the URL is constructed correctly for HashRouter, adding space=0 by default
-  const relativePath = chatId ? `#/chat/${chatId}?space=0` : `#/chats`;
+  // Open the space list by default using the query parameter
+  const relativePath = chatId ? `#/chats?showSpacesForChat=${chatId}` : `#/chats`;
   const urlToOpen = new URL(relativePath, baseUrl).href;
 
   event.waitUntil(
