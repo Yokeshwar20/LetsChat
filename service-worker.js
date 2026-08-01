@@ -26,7 +26,7 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 
 // ─── Cache Configuration ────────────────────────────────────────────────────
-const CACHE_VERSION = 'letchat-v2.0.8';
+const CACHE_VERSION = 'letchat-v2.0.9';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
 // Only cache files guaranteed to exist at build time
@@ -230,7 +230,7 @@ self.addEventListener('fetch', (event) => {
   // ── Strategy 3: Vite Assets (/assets/) — Race-Optimized SWR ──
   // Return from cache INSTANTLY if available, then update cache in background.
   // This eliminates loading latency on repeat visits.
-  if (url.pathname.startsWith('/assets/')) {
+  if (url.pathname.includes('/assets/')) {
     event.respondWith(
       (async () => {
         const cachedResponse = await caches.match(event.request);

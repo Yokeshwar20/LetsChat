@@ -3,9 +3,9 @@
   "short_name": "LetsChat",
   "start_url": "/LetsChat/",
   "scope": "/LetsChat/",
-  "display": "fullscreen",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "display": "standalone",
+  "background_color": "#0a0f18",
+  "theme_color": "#0a0f18",
   "icons": [
     {
       "src": "icon-192.png",
